@@ -1,0 +1,7 @@
+# DSH bundle patch layer.
+# 官方规范: 打包后的 patch 必须用「包名」引用模块，让 Node resolution 找到已安装代码；
+# 绝对路径写法只用于本地调试的 --patch overlay。
+# TODO(dsh-adapt): 若宿主版本把 patch 行格式改为对象/多文件列表，见 README 待适配点 A2。
+- insert:
+    - id: frame-animation
+      name: dsh-frame-animation

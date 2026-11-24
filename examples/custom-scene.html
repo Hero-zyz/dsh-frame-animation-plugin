@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:system-ui,sans-serif}
+  body{background:linear-gradient(135deg,#1b3a63,#3f7ea8 55%,#f0c98a);color:#fff;display:flex;align-items:center;justify-content:center}
+  .card{text-align:center;text-shadow:0 2px 12px rgba(0,0,0,.35)}
+  h1{font-size:min(6vw,64px);margin:0 0 .3em}
+  p{font-size:min(2.4vw,22px);opacity:.85;margin:.2em 0}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>逐帧 · {{FRAME}} / {{TOTAL_FRAMES}}</h1>
+    <p>t = {{T}} · {{TIME_SEC}} s · {{FPS}} fps</p>
+    <p>{{WIDTH}} × {{HEIGHT}} · {{VARS.title}}</p>
+  </div>
+  <!-- VARS_JSON 会做 script-safe 转义，可安全嵌入；模板变量用 {{VARS.key}} 逐个取 -->
+  <script>window.__CTX__ = {{VARS_JSON}};</script>
+</body>
+</html>

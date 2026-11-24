@@ -1,0 +1,12 @@
+{
+  "outputPath": "./out/high-1280x720.mp4",
+  "width": 1280,
+  "height": 720,
+  "fps": 24,
+  "totalFrames": 48,
+  "scene": "ghibli",
+  "framesDir": "./out/frames-high",
+  "crf": 20,
+  "preset": "medium",
+  "logLevel": "info"
+}

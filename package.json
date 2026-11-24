@@ -1,0 +1,47 @@
+{
+  "name": "dsh-frame-animation",
+  "version": "0.1.0",
+  "description": "DSH plugin: generate frame-by-frame HTML animation and encode it to MP4",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "dsh-frame-animation": "./bin/cli.js"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "src/",
+    "bin/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.0 <0.3.0"
+  },
+  "scripts": {
+    "render": "node bin/cli.js",
+    "smoke": "node test/smoke.mjs",
+    "bench": "node test/smoke.mjs --bench"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "playwright": "^1.65.1"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "frame-by-frame",
+    "animation",
+    "html-to-video",
+    "mp4",
+    "ffmpeg"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "outputPath": "./out/low-320x180.mp4",
+  "width": 320,
+  "height": 180,
+  "fps": 12,
+  "totalFrames": 24,
+  "scene": "ghibli",
+  "framesDir": "./out/frames-low",
+  "crf": 23,
+  "preset": "veryfast",
+  "logLevel": "info"
+}
