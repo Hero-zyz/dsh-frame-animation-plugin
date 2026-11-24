@@ -1,5 +1,8 @@
 # dsh-frame-animation
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![DSH Plugin](https://img.shields.io/badge/DSH-plugin-blue.svg)](https://github.com/topics/dsh-plugin)
+
 > DeepSeek Harness (DSH) plugin —— 用代码逐帧绘制 HTML，渲染成连续帧图，再按帧序打包编码为 MP4。
 > Frame-by-frame HTML animation rendered in a headless browser and encoded to MP4, as a DSH tool plugin.
 
@@ -82,6 +85,8 @@ DSH 处于 developer preview，接口可能破坏性变更 —— 所有宿主�
 需要 Node.js >= 20。
 
 ```bash
+git clone https://github.com/Hero-zyz/dsh-frame-animation-plugin.git
+cd dsh-frame-animation-plugin
 npm install                 # 安装 playwright 与 npm 自带 ffmpeg 二进制
 ```
 
