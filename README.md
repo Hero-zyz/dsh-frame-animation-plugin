@@ -106,7 +106,7 @@ node bin/cli.js --help
 ### 开发与测试
 
 ```bash
-npm run smoke     # 20 项：参数校验 / 帧序硬校验 / 端到端 MP4 / 解码帧数 / 首末帧差异
+npm run smoke     # 31 项：参数校验 / 帧序硬校验 / 端到端 MP4 / 解码帧数 / 首末帧差异 / DSH 契约校验
 npm run bench     # 追加低 vs 高分辨率对比（像素 / 渲染耗时 / PNG / MP4）
 ```
 
@@ -173,10 +173,10 @@ npm run bench     # 追加低 vs 高分辨率对比（像素 / 渲染耗时 / PN
 
 | 档位 | 分辨率 | 像素/帧 | 渲染耗时 | 平均/帧 | PNG 合计 | MP4 | 总耗时 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 低 | 320×180 | 57,600 | 832.3ms | 69.3ms | 377.7KB | 14.7KB | 1.28s |
-| 高 | 1280×720 | 921,600 | 2.09s | 173.7ms | 3.96MB | 96.9KB | 2.57s |
+| 低 | 320×180 | 57,600 | 925.6ms | 77.0ms | 377.7KB | 14.7KB | 1.39s |
+| 高 | 1280×720 | 921,600 | 2.21s | 183.9ms | 3.96MB | 96.9KB | 2.72s |
 
-像素 **16.0×** → 渲染 **2.51×**、PNG **10.74×**、MP4 **6.58×**。
+像素 **16.0×** → 渲染 **2.38×**、PNG **10.74×**、MP4 **6.58×**。
 
 （PNG/MP4 倍率低于像素倍率，是因为渐变类画面在高分辨率下压缩率更高；换 `ghibli` 这类细节场景差距会更明显。
 数值随机器与场景浮动，趋势稳定。复现：`npm run bench`。）
@@ -219,17 +219,20 @@ npm run bench     # 追加低 vs 高分辨率对比（像素 / 渲染耗时 / PN
 
 | 编号 | 位置 | 说明 / 触发条件 | 适配办法 |
 | --- | --- | --- | --- |
-| **A0** | `index.js` | `defineTool` 的导出包或签名变更 | 只改这一行 import（`@deepseek-ai/dsh-tools` → 新包） |
-| **A1** | `dsh-adapter.js` `HOST_MODULE_CANDIDATES` | 宿主错误类的导出位置在 preview 期可能变动 | 已按 `dsh-tools` / `dsh-errors` / `cordis` 顺序动态探测；新增候选包即可 |
-| **A2** | `makeArgsError()` | `ToolArgsError` 构造签名未在官方文档给出示例 | 当前按 `new ToolArgsError(message)`；若需 `{ code }` 第二参数，改此处 |
-| **A3** | `makeHarnessError()` | `HarnessError` 构造签名未知 | 已尝试 `(msg, {code})` 与 `(msg, code)` 双签名，仍失败则降级为带 `code` 的普通 Error |
-| **A4** | `OUTPUT_SCHEMA` | `ValueSchemaSpec` 的 `properties` 支持情况 | 若宿主拒绝，降级为 `{ type: 'object', additionalProperties: true }` |
-| **A5** | `execute()` 后台分支 | `ctx.jobs.start()` 返回句柄字段（`jobId`/`id`）与 `run` 回调契约未在文档细化 | 默认 `runInBackground=false` 不触发；启用前按实际运行时核对 |
-| **A6** | 验收流程 | 未在本机真实 profile 完成「冷启动 / 热加载 / 配置热更新 / 完整卸载」四态验收 | 需 `dsh plugin --profile add` + `dsh --profile --dump-config` 后逐项验证 |
-| **A7** | `package.json` `engines.dsh` | 写成 `">=0.2.0 <0.3.0"`；SemVer 默认不匹配 prerelease，而本机 DSH 为 `0.2.2-rc.3` | 若安装被拒，改为 `">=0.2.0-0 <0.3.0"` 或移除该字段 |
+| **A0** | `index.js` 的 `defineTool` 导入 | ✅ 已实测 | `@deepseek-ai/dsh-tools@0.0.1-rc.1` 确导出 `defineTool`；包名/签名变更时只改这一行 |
+| **A1** | `HOST_MODULE_CANDIDATES` | ✅ 已实证归属 | `ToolArgsError` 在 `dsh-tools`；**`HarnessError` 在 `dsh-llm`**（不在 `dsh-errors` / `cordis`） |
+| **A2** | `makeArgsError()` | ✅ 已修正 | 真实签名 `constructor(violations: string[])` —— 已改为 `new Ctor([message])` |
+| **A3** | `makeHarnessError()` | ✅ 已修正 | 真实签名 `constructor(message, code, options?)` —— 已改为 `(message, code)` |
+| **A4** | `OUTPUT_SCHEMA` | ✅ 已通过编译 | `ObjectValueSchemaSpec` 要求 `additionalProperties` 必填，已显式声明 |
+| **A5** | `execute()` 后台分支 | ⚠ 未验证 | `ctx.jobs` 由 `dsh-tool-jobs` 提供；句柄字段与 `run` 契约未在类型声明确认，默认不触发 |
+| **A6** | 宿主四态验收 | ⚠ 未完成 | 需真实 profile 验证冷启动 / 热加载 / 配置热更新 / 完整卸载 |
+| **A7** | `engines.dsh` | ⚠ 需留意 | `">=0.2.0 <0.3.0"` 不匹配 prerelease（本机 `0.2.2-rc.3`）；被拒时改 `">=0.2.0-0 <0.3.0"` |
+| **A8** | `presentCall` / `presentResult` | ✅ 已验证行为 | `defineTool` 会软校验 presenters 的 args，不满足 schema 即回退 generic；`presentResult` 只能读 `result.meta`（已用 `presentationMeta` 投影） |
 
-> 已完成的验证：独立 CLI 端到端（生成 / 帧序 / 解码帧数 / 首末帧差异）与参数、帧序两类负向用例全部通过，
-> 详见 `npm run smoke`。宿主内四态验收（A6）需要在装有 `dsh` CLI 的环境补做。
+> **已完成的验证（`npm run smoke`，31 项全绿）**：参数校验 10 项、帧序硬校验 3 项、端到端 7 项
+> （含 ffmpeg 解码帧数 = 12、首末帧内容不同）、分辨率基准 4 项，以及 **DSH 契约校验 8 项** ——
+> 用真实 `defineTool` 编译本插件的参数表与输出 schema，并验证 `render` / `presentationMeta` /
+> `presentResult` / `presentCall` 的实际行为。**仍未做**：宿主内 `dsh plugin add` 之后的四态验收（A6）。
 
 ---
 

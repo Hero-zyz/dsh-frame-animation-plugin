@@ -2,32 +2,41 @@
  * ============================================================================
  * DSH 宿主适配层（唯一收敛点）
  * ----------------------------------------------------------------------------
- * 目标：所有与 DeepSeek Harness 运行时耦合的东西都只出现在
- *       index.js（一行 defineTool 静态导入）和本文件里。
- *       核心流水线 src/pipeline.js 完全不依赖 DSH，可独立用 CLI 运行与测试。
+ * 核心流水线 src/pipeline.js 完全不依赖 DSH，可独立用 CLI 运行与测试。
+ * 所有宿主耦合点只出现在 index.js（一行 defineTool 静态导入）与本文件。
  *
- * 依据（官方一手文档，2026-11 核对）：
- *   - docs/cookbook/adding-a-tool.md      Tool authoring reference
- *   - docs/user/develop/basic/tool.md    Build a tool
- *   - docs/user/develop/basic/publish.md dsh.bundle / cordis.patch.yml
+ * 契约来源（已逐条核对真实类型声明，而非仅凭文档）：
+ *   @deepseek-ai/dsh-tools@0.0.1-rc.1  lib/types/schema.d.ts
+ *     - defineTool(options: DefineToolOptions<S,O>): ToolDefinition
+ *     - ToolArgsError  constructor(violations: string[])
+ *     - ObjectValueSchemaSpec { type:'object', properties?: ParameterSchemaSpec,
+ *                               additionalProperties: boolean }   // 必填
+ *     - ParameterPropertySpec = ValueSchemaSpec & { required?: true }
+ *   @deepseek-ai/dsh-tools  lib/types/index.d.ts
+ *     - ToolResult { content: ContentBlock[]; isError: boolean; meta?: JsonValue }
+ *     - ToolRunContext 含 signal: AbortSignal / agent?: Agent / token
+ *     - TOOL_ABORTED = 'ABORTED'
+ *   @deepseek-ai/dsh-llm    lib/types/error.d.ts
+ *     - HarnessError constructor(message: string, code: string, options?: ErrorOptions)
  *
- * TODO(dsh-adapt) 清单见 README「待适配点」章节；本文件内以 A1..A6 标注。
+ * 仍保留动态 import + 降级：DSH 处于 developer preview，接口可能漂移，
+ * 缺某个具名导出时降级为带 code 的普通 Error，而不是在链接期崩溃。
  * ============================================================================
  */
 import { validateConfig, PARAM_SPECS } from './config.js'
 import { runPipeline } from './pipeline.js'
-import { normalizeError } from './errors.js'
+import { normalizeError, AbortError } from './errors.js'
 
 export const TOOL_NAME = 'generate_frame_animation'
 
-// A1: 宿主错误类的确切导出包/名字在 developer preview 期间可能变动。
-//     这里用动态 import 做最佳努力探测，探测不到就降级为带 code 的普通 Error，
-//     绝不因为缺少某个具名导出而在链接期崩溃。
+// HarnessError 的真实来源是叶子包 dsh-llm（dsh-tools 也从那里再导出使用）。
 const HOST_MODULE_CANDIDATES = [
   '@deepseek-ai/dsh-tools',
+  '@deepseek-ai/dsh-llm',
   '@deepseek-ai/dsh-errors',
   '@deepseek-ai/cordis',
 ]
+
 let hostModules = null
 
 async function loadHostModules() {
@@ -48,35 +57,45 @@ async function findHostExport(exportName) {
   const mods = await loadHostModules()
   for (const name of HOST_MODULE_CANDIDATES) {
     const candidate = mods[name]?.[exportName] ?? mods[name]?.default?.[exportName]
-    if (candidate) return candidate
+    if (typeof candidate === 'function') return candidate
   }
   return null
 }
 
+/**
+ * DSL 表达不了的约束（范围、偶数、路径存在性、跨字段）用 ToolArgsError 拒绝。
+ * 真实签名是 constructor(violations: string[])，必须传数组。
+ */
 async function makeArgsError(message) {
-  const Ctor = await findHostExport('ToolArgsError')   // A2: 官方要求用 ToolArgsError 拒绝 DSL 无法表达的约束
-  if (typeof Ctor === 'function') return new Ctor(message)
+  const Ctor = await findHostExport('ToolArgsError')
+  if (Ctor) {
+    try {
+      return new Ctor([message])
+    } catch {
+      // 宿主签名漂移，落到下面的降级实现
+    }
+  }
   const err = new Error(message)
   err.name = 'ToolArgsError'
   err.code = 'ERR_CONFIG'
   return err
 }
 
+/**
+ * 预期失败抛 HarnessError 才能在 tool/result 上保留 error.name / error.code。
+ * 真实签名是 (message, code, options?)，不是 (message, { code })。
+ */
 async function makeHarnessError(message, code) {
-  const Ctor = await findHostExport('HarnessError')    // A3: 官方要求预期失败抛 HarnessError 子类以保留 error.code
-  if (typeof Ctor === 'function') {
+  const Ctor = await findHostExport('HarnessError')
+  if (Ctor) {
     try {
-      return new Ctor(message, { code })
+      return new Ctor(message, code)
     } catch {
       try {
-        return new Ctor(message, code)
+        return new Ctor(message, { code })
       } catch {
-        // 构造签名不匹配时继续降级
+        // 继续降级
       }
-      const err = new Error(message)
-      err.name = 'HarnessError'
-      err.code = code
-      return err
     }
   }
   const err = new Error(message)
@@ -107,8 +126,8 @@ function formatResultText(value) {
   ].join('\n')
 }
 
-// A4: ValueSchemaSpec 的 object 字段声明在 developer preview 期间可能收紧。
-//     若宿主拒绝 properties，把 schema 降级为 { type: 'object', additionalProperties: true }。
+// ObjectValueSchemaSpec 要求 additionalProperties 必填；这里显式声明开放性。
+// 若宿主后续收紧 ValueSchemaSpec，降级为 { type:'object', additionalProperties:true }。
 const OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -124,7 +143,7 @@ const OUTPUT_SCHEMA = {
 
 /**
  * 生成 defineTool 所需的完整定义。
- * ctx 由 index.js 的 apply(ctx) 传入，只做「可选能力探测」，不强制 inject 新服务。
+ * ctx 由 index.js 的 apply(ctx) 传入，只做可选能力探测，不强制 inject 新服务。
  */
 export function createFrameAnimationTool(ctx = null) {
   return {
@@ -139,29 +158,50 @@ export function createFrameAnimationTool(ctx = null) {
 
     output: {
       schema: OUTPUT_SCHEMA,
+      // 官方签名：render(args, value) -> ContentBlock[]
       render: (_args, value) => [{ type: 'text', text: formatResultText(value) }],
+      // presentResult 只能拿到 { content, isError, meta }，拿不到 canonical value。
+      // 因此用 presentationMeta 把结果摘要投影成可重放的 JSON。
+      presentationMeta: (_args, value) => ({
+        ok: value?.ok === true,
+        mode: value?.mode ?? null,
+        outputPath: value?.report?.outputPath ?? value?.outputPath ?? null,
+        width: value?.report?.width ?? null,
+        height: value?.report?.height ?? null,
+        frameCount: value?.report?.frameCount ?? null,
+        totalFrames: value?.report?.totalFrames ?? null,
+        mp4Bytes: value?.report?.mp4Bytes ?? null,
+      }),
     },
 
     // 官方要求：卡片呈现必须是 args / result 的纯函数，不做任何 I/O。
     presentCall(args) {
+      const w = args?.width ?? 640
+      const h = args?.height ?? 360
+      const n = args?.totalFrames ?? 48
       return {
         card: 'generic',
-        title: `逐帧动画 ${args?.width ?? 640}x${args?.height ?? 360} · ${args?.totalFrames ?? 48} 帧`,
-        locations: args?.outputPath ? [{ path: args.outputPath }] : [],
+        title: `逐帧动画 ${w}x${h} · ${n} 帧`,
+        kind: 'other',
+        rawInput: args?.outputPath,
+        locations: typeof args?.outputPath === 'string' ? [{ path: args.outputPath }] : [],
       }
     },
+    // GenericResultView 只有 { card, title?, content? }，不含 locations。
     presentResult(_args, result) {
-      const path = result?.report?.outputPath ?? result?.outputPath
+      const meta = result?.meta ?? {}
+      const failed = result?.isError === true || meta.ok === false
+      const detail = meta.width && meta.height
+        ? ` ${meta.width}x${meta.height} · ${meta.frameCount ?? '?'} 帧`
+        : ''
       return {
         card: 'generic',
-        title: result?.ok ? '逐帧动画视频已生成' : '逐帧动画生成失败',
-        locations: path ? [{ path }] : [],
+        title: failed ? '逐帧动画生成失败' : `逐帧动画视频已生成${detail}`,
       }
     },
 
     async execute(args, exec) {
       // DSL 只保证类型/必填；范围、偶数、路径存在性、跨字段规则在此手检。
-      // 官方：这类约束用 ToolArgsError 拒绝，而不是静默接受。
       let config
       try {
         config = validateConfig(args)
@@ -169,8 +209,8 @@ export function createFrameAnimationTool(ctx = null) {
         throw await makeArgsError(err.message)
       }
 
-      // A5: 后台任务通道。官方建议长任务走 ctx.jobs.start；此处为可选能力，
-      //     宿主不提供 jobs 时自动降级为前台执行，不影响主流程。
+      // 后台任务通道由 dsh-tool-jobs 的 ctx.jobs 提供，属可选能力；
+      // 宿主未挂载时静默降级为前台执行，不影响主流程。
       if (config.runInBackground && typeof ctx?.jobs?.start === 'function') {
         try {
           const handle = await ctx.jobs.start({
@@ -186,6 +226,7 @@ export function createFrameAnimationTool(ctx = null) {
             outputPath: config.outputPath,
           }
         } catch (err) {
+          if (err instanceof AbortError || err?.name === 'AbortError') throw err
           const e = normalizeError(err, 'jobs')
           throw await makeHarnessError(`后台任务启动失败：${e.message}`, e.code)
         }
@@ -199,20 +240,21 @@ export function createFrameAnimationTool(ctx = null) {
         })
         return { ok: true, mode: 'foreground', report, outputPath: report.outputPath }
       } catch (err) {
+        // 官方：signal 取消时必须让 AbortError 原样传播，不能替换成别的错误。
+        if (err instanceof AbortError || err?.name === 'AbortError') throw err
         const e = normalizeError(err, 'execute')
-        // 官方：抛异常 = isError；基础设施失败用 HarnessError 子类保留稳定 code。
         throw await makeHarnessError(e.message, e.code)
       }
     },
   }
 }
 
-// A6: 便于本地独立校验 schema / 参数表，无需启动 DSH 宿主。
+/** 便于本地独立校验 schema / 参数表，无需启动 DSH 宿主。 */
 export function describeAdapter() {
   return {
     toolName: TOOL_NAME,
     parameterKeys: Object.keys(PARAM_SPECS),
     hostModuleCandidates: HOST_MODULE_CANDIDATES,
-    adaptPoints: ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'],
+    adaptPoints: ['A0', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7'],
   }
 }

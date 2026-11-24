@@ -172,5 +172,28 @@ if (BENCH && low) {
   }
 }
 
+console.log('\n=== 5. DSH 契约校验（真实 dsh-tools）===')
+try {
+  const { apply, name: pluginName, inject } = await import('../index.js')
+  const registered = []
+  apply({ tools: { register(def) { registered.push(def); return () => {} } } })
+  check('插件导出 name / inject', pluginName === 'frame-animation' && Array.isArray(inject) && inject.includes('tools'), `inject=${JSON.stringify(inject)}`)
+  check('apply 注册 1 个工具', registered.length === 1)
+  const def = registered[0]
+  check('defineTool 接受参数表与输出 schema', def?.name === 'generate_frame_animation' && typeof def.execute === 'function')
+  check('output.schema 为合法 object 且声明开放性', def?.output?.schema?.type === 'object' && def.output.schema.additionalProperties === true)
+  const sample = { ok: true, mode: 'foreground', report: { outputPath: 'out/x.mp4', width: 1280, height: 720, fps: 24, frameCount: 48, totalFrames: 48, durationSec: 2, framesDir: 'd', frameFirst: 'a', frameLast: 'b', totalMs: 1, renderMs: 1, encodeMs: 1, pngBytes: 1, mp4Bytes: 1 } }
+  const blocks = def.output.render({}, sample)
+  check('render 返回 ContentBlock[]', Array.isArray(blocks) && blocks[0]?.type === 'text' && blocks[0].text.includes('out/x.mp4'))
+  const meta = def.output.presentationMeta({}, sample)
+  check('presentationMeta 投影结果摘要', meta?.outputPath === 'out/x.mp4' && meta?.width === 1280)
+  const view = def.presentResult({ outputPath: 'out/x.mp4' }, { isError: false, content: [], meta })
+  check('presentResult 从 meta 还原卡片', view?.card === 'generic' && String(view.title).includes('1280x720'))
+  const callView = def.presentCall({ width: 320, height: 180, totalFrames: 12, outputPath: 'z.mp4' })
+  check('presentCall 为纯函数卡片', callView?.card === 'generic' && callView.locations?.[0]?.path === 'z.mp4')
+} catch (err) {
+  check('DSH 契约校验', false, `[${err.code ?? err.name}] ${err.message}`)
+}
+
 console.log(`\n=== 结果：${passed} 通过 / ${failed} 失败 ===`)
 if (failed > 0) process.exitCode = 1
