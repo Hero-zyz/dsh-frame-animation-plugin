@@ -38,26 +38,13 @@
 
 ---
 
-## 为什么没有直接复用现成方案
 
-按「先找现成的」原则检索过 GitHub 生态（2026-11），结论如下：
-
-| 候选 | 覆盖情况 | 为何不能直接用 |
-| --- | --- | --- |
-| [Remotion](https://github.com/remotion-dev/remotion) 72K★ | DOM 逐帧截图 + ffmpeg，最成熟 | React/JSX 组件模型，不是「代码生成独立 HTML 帧」；Remotion License 非 MIT，用于自动化/构建视频工具需付费许可；是独立框架而非 DSH Tool 插件；需下载 Chrome Headless Shell |
-| [Zien153/HTML-TO-VIDEO](https://github.com/Zien153/HTML-TO-VIDEO) | HTML → MP4 + Playwright + ffmpeg | 云端 HTTP 服务（Render 部署 / multipart 上传）；参数只有 duration、宽高、fps，**无总帧数与输出路径**；单页录屏，非逐帧确定性生成 |
-| [loobah18-arch/rat-film](https://github.com/loobah18-arch/rat-film) | 单 HTML + Playwright 逐帧 + ffmpeg CI | 是一部具体影片作品（TTS/配乐/字幕/GitHub Actions），不是可复用插件 |
-| [junjie721/canvas-explainer-videos](https://github.com/junjie721/canvas-explainer-videos) | `renderFrame(n)` 纯函数 + ffmpeg | 是 Agent Skill（Codex/Claude），不是 DSH 插件；绑定旁白与配乐 |
-| [q253595422/dsh-imagegen-video](https://github.com/q253595422/dsh-imagegen-video) | 确实是 DSH 插件 | 走第三方 AI 生图/生视频 API（需网关 Key），不是本地 HTML 逐帧渲染 |
-
-**没有任何现成方案同时满足**：DSH Tool 插件形态 + 代码生成独立 HTML 帧 + 分辨率/帧率/总帧数/输出路径全可配 + 本地零外部服务。
-因此只自研必要的胶水层，底层全部复用成熟组件：
 
 - 渲染：[Playwright](https://playwright.dev/)（默认复用本机 Edge，免下载 Chromium）
 - 编码：[@ffmpeg-installer/ffmpeg](https://www.npmjs.com/package/@ffmpeg-installer/ffmpeg)（二进制随 npm 包分发，规避 GitHub Release 直连不稳定）
 - 插件规范：DSH 官方 `adding-a-tool.md` / `tool.md` / `publish.md`
 
-其中 `renderFrame(n)` 纯函数保证「预览与导出一致」的思路，借鉴自 `canvas-explainer-videos`。
+
 
 ---
 
